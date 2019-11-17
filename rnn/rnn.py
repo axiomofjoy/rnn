@@ -1,18 +1,145 @@
 """
-An implementation of GRU and LSTM.
+An implementation of various RNN architectures.
 Author: Xander Song
 """
 
+from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
 import random
 import math
 import pudb
 
-class LSTM(nn.Module):
+
+__all__ = ['RNN', 'RNNCell', 'LSTM', 'LSTMCell', 'GRU', 'GRUCell']
+
+class AbstractRNNCell(ABC, nn.Module):
+    @abstractmethod
+    def forward(self):
+        pass
+
+class AbstractRNN(ABC, nn.Module):
+    @abstractmethod
+    def forward(self):
+        pass
+
+class RNN(AbstractRNN):
     pass
 
-class LSTMCell(nn.Module):
+class RNNCell(AbstractRNNCell):
+    def __init__(self, input_size, hidden_size, bias=True,
+            nonlinearity='tanh'):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.Wih = nn.Linear(input_size, hidden_size, bias=bias)
+        self.Whh = nn.Linear(hidden_size, hidden_size, bias=bias)
+        if nonlinearity == 'tanh':
+            self.nonlinearity = nn.Tanh()
+        elif nonlinearity == 'relu':
+            self.nonlinearity = F.relu()
+        else:
+            raise ValueError("Invalid nonlinearity.")
+
+    def forward(self, input, hidden=None):
+        if hidden is None:
+            batch = input.shape[0]
+            hidden = torch.zeros(batch, self.hidden_size)
+        return self.nonlinearity(self.Wih(input) + self.Whh(hidden))
+        
+class LSTM(AbstractRNN):
+    """
+    An implementation of LSTM.
+
+    """
+
+    def __init__(self, input_size, hidden_size, num_layers, bias=True,
+                 batch_first=True, dropout=0, bidirectional=False):    
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.bias = bias
+        self.batch_first = batch_first
+        self.dropout = dropout
+        self.bidirectional = bidirectional
+        self.num_directions = 2 if bidirectional else 1
+
+        if self.bidirectional:
+            raise Exception("Bidirectional LSTM not currently supported.")
+        else:
+            # Unidirectional LSTM.
+            self.layers = [LSTMCell(self.input_size, self.hidden_size,
+                bias=self.bias)]
+            self.layers.extend([
+                LSTMCell(self.hidden_size, self.hidden_size, bias=self.bias)
+                for _ in range(self.num_layers - 1)
+            ])
+
+    def forward(self, input_, hidden_layers=None):
+        """
+        Args:
+            input_ (torch.tensor): Input tensor of dimension (seq_len,
+                batch, input_size)
+            hidden_layers (tuple): Tuple of torch tensors, each of
+                dimension (num_layers * self.num_directions, batch,
+                hidden_size), representing the initial hidden and cell
+                states for each element in the batch. If hidden_layers
+                is None, then the hidden and cell states are initiliazed
+                to zero.
+        """
+
+        self.check_input(input_)
+        seq_len, batch, _ = input_.shape
+
+        if hidden_layers:
+            self.check_hidden(hidden_layers)
+        else:
+            h0 = torch.zeros(self.num_layers * self.num_directions, batch,
+                             self.hidden_size)
+            c0 = torch.zeros(self.num_layers * self.num_directions, batch,
+                             self.hidden_size)
+            t = (h0, c0)
+
+        if self.bidirectional:
+            pass
+        else:
+            h, c = h0, c0
+            output = list()
+            for s in range(seq_len):
+                h[0,:,:], c[0,:,:] = self.layers[0](input_[s,:,:], (h[0,:,:], c[0,:,:]))
+                for i, layer in enumerate(self.layers[1:]):
+                    i += 1
+                    h[i,:,:], c[i,:,:] = layer(h[i-1,:,:], (h[i,:,:], c[i,:,:]))
+                output.append(h[-1,:,:])
+            return output
+
+    def check_input(self, input_):
+        """
+        Raises a ValueError if input_ has unexpected batch or input_size
+        dimensions.
+
+        Args:
+            input_ (torch.tensor): An input tensor of dimensions
+                (seq_len, batch, input_size).
+
+        Returns:
+            None
+
+        Raises:
+            ValueError
+        """
+
+        seq_len, batch, input_size = input_.shape
+        if input_size != self.input_size:
+            raise ValueError("Incorrect input size.")
+                
+class LSTMCell(AbstractRNNCell):
+    """
+    An implementation of LSTMCell.
+    """
+
     def __init__(self, input_size, hidden_size, bias=True):
         super().__init__()
         self.input_size = input_size
@@ -80,45 +207,18 @@ class LSTMCell(nn.Module):
         h1 = o * self.tanh(c1)
         return (h1, c1)
 
-
 class GRU(nn.Module):
     pass
 
 class GRUCell(nn.Module):
     pass
 
-
 def main():
-    torch.manual_seed(0)
-    input_size = 256
-    hidden_size = 64
+    input_size = 10
+    hidden_size = 5
     bias = True
-    batch = 32
-
-    # Torch LSTM Cell.
-    torch_lstm_cell = nn.LSTMCell(input_size, hidden_size, bias=bias)
-    lstm_cell = LSTMCell(input_size, hidden_size, bias=bias)
-
-    lstm_cell.linear_x._parameters['weight'] = \
-        torch_lstm_cell._parameters['weight_ih']
-    lstm_cell.linear_x._parameters['bias'] = \
-        torch_lstm_cell._parameters['bias_ih']
-    lstm_cell.linear_h._parameters['weight'] = \
-        torch_lstm_cell._parameters['weight_hh']
-    lstm_cell.linear_h._parameters['bias'] = \
-        torch_lstm_cell._parameters['bias_hh']
-
-    import numpy
-    import numpy.testing as np_test
-
-    input_ = torch.rand(batch, input_size)
-    h1, c1 = lstm_cell(input_)
-    h1_, c1_ = torch_lstm_cell(input_)
-    
-    np_test.assert_array_almost_equal(h1.detach().numpy(),
-                                      h1_.detach().numpy())
-    np_test.assert_array_almost_equal(c1.detach().numpy(),
-                                      c1_.detach().numpy())
+    pudb.set_trace()
+    rnn_cell = RNNCell(input_size, hidden_size, bias=bias)
     print("Done")
 
 
