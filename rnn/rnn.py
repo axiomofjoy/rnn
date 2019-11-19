@@ -1,5 +1,5 @@
 """
-An implementation of various RNN architectures.
+An implementation of RNNs, LSTMs, and GRUs.
 Author: Xander Song
 """
 
@@ -10,52 +10,24 @@ import random
 import math
 import pudb
 
-
 __all__ = ['RNN', 'RNNCell', 'LSTM', 'LSTMCell', 'GRU', 'GRUCell']
 
 class AbstractRNNCell(ABC, nn.Module):
+    @abstractmethod
+    def __init__(self, input_size, hidden_size, bias):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+
     @abstractmethod
     def forward(self):
         pass
 
 class AbstractRNN(ABC, nn.Module):
     @abstractmethod
-    def forward(self):
-        pass
-
-class RNN(AbstractRNN):
-    pass
-
-class RNNCell(AbstractRNNCell):
-    def __init__(self, input_size, hidden_size, bias=True,
-            nonlinearity='tanh'):
-        super().__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.bias = bias
-        self.Wih = nn.Linear(input_size, hidden_size, bias=bias)
-        self.Whh = nn.Linear(hidden_size, hidden_size, bias=bias)
-        if nonlinearity == 'tanh':
-            self.nonlinearity = nn.Tanh()
-        elif nonlinearity == 'relu':
-            self.nonlinearity = F.relu()
-        else:
-            raise ValueError("Invalid nonlinearity.")
-
-    def forward(self, input, hidden=None):
-        if hidden is None:
-            batch = input.shape[0]
-            hidden = torch.zeros(batch, self.hidden_size)
-        return self.nonlinearity(self.Wih(input) + self.Whh(hidden))
-        
-class LSTM(AbstractRNN):
-    """
-    An implementation of LSTM.
-
-    """
-
-    def __init__(self, input_size, hidden_size, num_layers, bias=True,
-                 batch_first=True, dropout=0, bidirectional=False):    
+    def __init__(self, input_size, hidden_size, num_layers=1, bias=True,
+                 batch_first=False, dropout=0, bidirectional=False):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -64,8 +36,41 @@ class LSTM(AbstractRNN):
         self.batch_first = batch_first
         self.dropout = dropout
         self.bidirectional = bidirectional
-        self.num_directions = 2 if bidirectional else 1
 
+    @abstractmethod
+    def forward(self):
+        pass
+
+class RNN(AbstractRNN):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, X):
+        pass
+        
+class RNNCell(AbstractRNNCell):
+    def __init__(self, *args, **kwargs):
+        self.nonlinearity = kwargs.pop('nonlinearity', 'tanh')
+        super().__init__(*args, **kwargs)
+        self.Wih = nn.Linear(self.input_size, self.hidden_size, bias=self.bias)
+        self.Whh = nn.Linear(self.hidden_size, self.hidden_size, bias=self.bias)
+        if self.nonlinearity == 'tanh':
+            self.activation = nn.Tanh()
+        elif self.nonlinearity == 'relu':
+            self.activation = F.relu()
+        else:
+            raise ValueError("Invalid nonlinearity.")
+
+    def forward(self, input, hidden=None):
+        if hidden is None:
+            batch = input.shape[0]
+            hidden = torch.zeros(batch, self.hidden_size)
+        return self.activation(self.Wih(input) + self.Whh(hidden))
+        
+class LSTM(AbstractRNN):
+    def __init__(self, *args, **kwargs):    
+        super().__init__(*args, **kwargs)
+        self.num_directions = 2 if bidirectional else 1
         if self.bidirectional:
             raise Exception("Bidirectional LSTM not currently supported.")
         else:
@@ -136,19 +141,11 @@ class LSTM(AbstractRNN):
             raise ValueError("Incorrect input size.")
                 
 class LSTMCell(AbstractRNNCell):
-    """
-    An implementation of LSTMCell.
-    """
-
-    def __init__(self, input_size, hidden_size, bias=True):
-        super().__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.bias = bias
-        self.hidden = self._init_hidden(hidden_size)
-        self.linear_x = nn.Linear(input_size, 4 * hidden_size,
-                                  bias=self.bias)
-        self.linear_h = nn.Linear(hidden_size, 4 * hidden_size,
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hidden = self._init_hidden(self.hidden_size)
+        self.linear_x = nn.Linear(self.input_size, 4 * self.hidden_size) #bias=self.bias)
+        self.linear_h = nn.Linear(self.hidden_size, 4 * self.hidden_size,
                                   bias=self.bias)
         self.sigmoid = nn.Sigmoid()
         self.tanh = nn.Tanh()
@@ -207,11 +204,13 @@ class LSTMCell(AbstractRNNCell):
         h1 = o * self.tanh(c1)
         return (h1, c1)
 
-class GRU(nn.Module):
-    pass
+class GRU(AbstractRNN):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-class GRUCell(nn.Module):
-    pass
+class GRUCell(AbstractRNNCell):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 def main():
     input_size = 10
